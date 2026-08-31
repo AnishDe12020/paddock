@@ -4,8 +4,10 @@ table inet paddock {
         # Compute origins may only ever send replies to the host.
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 ct state established,related accept
         iifname "br-paddock-api" ip saddr 10.89.0.4 ct state established,related accept
-        # The tunnel client and the egress proxy never talk to the host.
+        # The tunnel client and every egress proxy interface are denied host access.
         iifname "br-paddock-api" ip saddr 10.89.0.5 drop
+        iifname "br-paddock-ssh" ip saddr 10.88.0.3 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.3 drop
         iifname "br-paddock-net" ip saddr 10.90.0.3 drop
         # Fail closed for any other sandbox-originated traffic.
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
@@ -18,6 +20,8 @@ table inet paddock {
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 ct state established,related accept
         iifname "br-paddock-api" ip saddr 10.89.0.4 ct state established,related accept
         iifname "br-paddock-api" ip saddr 10.89.0.5 ct state established,related accept
+        iifname "br-paddock-ssh" ip saddr 10.88.0.3 ct state established,related accept
+        iifname "br-paddock-api" ip saddr 10.89.0.3 ct state established,related accept
         # Each compute origin may only reach its proxy address and port.
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 ip daddr 10.88.0.3 tcp dport 3128 accept
         iifname "br-paddock-api" ip saddr 10.89.0.4 ip daddr 10.89.0.3 tcp dport 3128 accept
@@ -39,6 +43,10 @@ table inet paddock {
             224.0.0.0/4,
             240.0.0.0/4,
         } drop
+        # Compromised proxy processes cannot originate routed traffic through
+        # either sandbox-side interface.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.3 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.3 drop
         # Fail closed for everything else from the compute origins.
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
         iifname "br-paddock-api" ip saddr 10.89.0.4 drop

@@ -106,14 +106,25 @@ def execute(command: str, timeout: int, output_limit: int) -> dict[str, object]:
                 selector.register(stream, selectors.EVENT_READ)
             deadline = time.monotonic() + timeout
             timed_out = False
+            drain_deadline = None
             while selector.get_map():
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 and not timed_out:
                     timed_out = True
+                    drain_deadline = time.monotonic() + 1
                     try:
                         os.killpg(process.pid, signal.SIGKILL)
                     except ProcessLookupError:
                         pass
+                    try:
+                        process.kill()
+                    except ProcessLookupError:
+                        pass
+                if timed_out and drain_deadline is not None and time.monotonic() >= drain_deadline:
+                    for key in list(selector.get_map().values()):
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                    break
                 events = selector.select(0.1 if timed_out else max(0, remaining))
                 for key, _ in events:
                     chunk = os.read(key.fileobj.fileno(), 65536)

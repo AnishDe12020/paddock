@@ -2,7 +2,10 @@
 
 import base64
 import importlib
+import os
+import signal
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -158,6 +161,14 @@ def test_write_rejects_root_and_directories(server):
         server.write_workspace_file("dir", "x")
 
 
+def test_list_marks_truncated_result(server):
+    server.write_workspace_file("one.txt", "1")
+    server.write_workspace_file("two.txt", "2")
+    result = server.list_workspace(max_entries=1)
+    assert len(result["entries"]) == 1
+    assert result["truncated"] is True
+
+
 # --- command execution -----------------------------------------------------------
 
 
@@ -204,6 +215,24 @@ def test_command_timeout_kills_process_group(server):
     result = server.execute("sleep 30", 1, 4096)
     assert result["timed_out"] is True
     assert result["exit_code"] == -9  # SIGKILL
+
+
+@requires_prlimit
+def test_timeout_returns_when_detached_child_holds_pipes(server):
+    started = time.monotonic()
+    result = server.execute(
+        "setsid sh -c 'sleep 60 & echo $! > detached.pid'",
+        1,
+        4096,
+    )
+    elapsed = time.monotonic() - started
+    detached_pid = int((server.ROOT / "detached.pid").read_text())
+    try:
+        os.kill(detached_pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    assert result["timed_out"] is True
+    assert elapsed < 3
 
 
 @requires_prlimit
@@ -266,3 +295,9 @@ def test_limit_env_defaults(tmp_path, monkeypatch):
         assert module.CPU_LIMIT == 4
         assert module.MEMORY_LIMIT_BYTES == 16 * 1024**3
         assert module.PROCESS_LIMIT == 1024
+
+
+def test_main_refuses_root(server, monkeypatch):
+    monkeypatch.setattr(server.os, "geteuid", lambda: 0)
+    with pytest.raises(SystemExit, match="must not run as root"):
+        server.main()

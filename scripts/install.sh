@@ -82,9 +82,64 @@ if existing_user=$(getent passwd 11000); then
     exit 1
 fi
 
-# The SSH key must be a valid, readable public key.
+# Refuse topology collisions before creating persistent state. Existing
+# Paddock networks with the expected subnet are valid on a redeploy.
+PROBE_NETWORK=
+cleanup_probe() {
+    if [[ -n "$PROBE_NETWORK" ]]; then
+        sudo docker network rm "$PROBE_NETWORK" >/dev/null 2>&1 || true
+    fi
+}
+trap cleanup_probe EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+check_subnet() {
+    local network_name=$1
+    local subnet=$2
+    local existing_subnets existing_subnet subnet_found=false
+    if sudo docker network inspect "$network_name" >/dev/null 2>&1; then
+        existing_subnets=$(sudo docker network inspect \
+            --format '{{range .IPAM.Config}}{{println .Subnet}}{{end}}' "$network_name")
+        while IFS= read -r existing_subnet; do
+            if [[ "$existing_subnet" == "$subnet" ]]; then
+                subnet_found=true
+                break
+            fi
+        done <<< "$existing_subnets"
+        if [[ "$subnet_found" != true ]]; then
+            printf 'Docker network %s exists but does not use %s.\n' "$network_name" "$subnet" >&2
+            exit 1
+        fi
+        return
+    fi
+    PROBE_NETWORK="paddock-subnet-check-$$-${subnet//[.\/]/-}"
+    if ! sudo docker network create --driver bridge --subnet "$subnet" "$PROBE_NETWORK" >/dev/null; then
+        printf 'Docker subnet %s is unavailable; Paddock requires an unused subnet.\n' \
+            "$subnet" >&2
+        exit 1
+    fi
+    sudo docker network rm "$PROBE_NETWORK" >/dev/null
+    PROBE_NETWORK=
+}
+
+check_subnet paddock-ssh-sandbox 10.88.0.0/24
+check_subnet paddock-api-sandbox 10.89.0.0/24
+check_subnet paddock-internet 10.90.0.0/24
+
+# The SSH key must be a valid, readable public key, never a private key file.
 if [[ ! -r "$SSH_KEY" ]]; then
     printf 'SSH public key %s is not readable.\n' "$SSH_KEY" >&2
+    exit 1
+fi
+mapfile -t SSH_KEY_LINES < "$SSH_KEY"
+if ((${#SSH_KEY_LINES[@]} != 1)); then
+    printf '%s must contain exactly one OpenSSH public-key line.\n' "$SSH_KEY" >&2
+    exit 1
+fi
+SSH_KEY_LINE=${SSH_KEY_LINES[0]}
+if [[ "$SSH_KEY_LINE" != ssh-ed25519\ * && "$SSH_KEY_LINE" != ssh-rsa\ * ]]; then
+    printf '%s must contain one Ed25519 or RSA OpenSSH public-key line.\n' "$SSH_KEY" >&2
     exit 1
 fi
 if ! ssh-keygen -l -f "$SSH_KEY" >/dev/null 2>&1; then
@@ -140,6 +195,7 @@ sudo install -m 0644 "$PROJECT_DIR/deploy/systemd/paddock-ssh.socket" /etc/syste
 sudo install -m 0644 "$PROJECT_DIR/deploy/systemd/paddock-ssh.service" /etc/systemd/system/paddock-ssh.service
 sudo systemctl daemon-reload
 sudo systemctl start paddock.slice
+sudo systemctl enable paddock.slice
 sudo systemctl enable paddock-firewall.service
 sudo systemctl restart paddock-firewall.service
 

@@ -91,9 +91,10 @@ bind-mounts it into both compute containers as `/workspace`. Container startup
 fails unless the mount is loop-backed ext4 with the expected capacity.
 
 The nftables service is ordered before Docker, so restart policies cannot bring
-the workloads up first during boot. The public SSH socket starts only after the
-firewall unit. Docker container roots are disposable; workspace data, SSH host
-keys, the operator public key, and tunnel credentials live outside them.
+the workloads up first during boot. The socket-proxy service cannot reach its
+container until Docker starts behind that boundary. Docker container roots are
+disposable; workspace data, SSH host keys, the operator public key, and tunnel
+credentials live outside them.
 
 ## Why two compute containers?
 
