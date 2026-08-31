@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lint prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends nftables shellcheck
+
+      - name: Install project with dev extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff lint
+        run: ruff check .
+
+      - name: Ruff format check
+        run: ruff format --check .
+
+      - name: ShellCheck
+        run: shellcheck scripts/*.sh docker/*.sh
+
+      - name: Unit tests
+        run: pytest tests/unit
+
+      - name: Integration tests (auto-skip without a deployed Paddock)
+        run: pytest tests/integration
+
+      - name: Validate compose file
+        run: docker compose config --quiet
+
+      - name: Validate nftables policy
+        run: sudo nft --check --file deploy/systemd/paddock-firewall.nft
+
+      - name: Build box image
+        run: docker build -f docker/box.Dockerfile -t paddock:local .
+
+      - name: Build proxy image
+        run: docker build -f docker/proxy.Dockerfile -t paddock-proxy:local .
