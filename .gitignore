@@ -1,0 +1,23 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Test and tool caches
+.pytest_cache/
+.ruff_cache/
+
+# Secrets and credentials
+.env
+.env.*
+credentials
+authorized_keys
+deploy/tunnel-client.yaml
+*.pem
+*.key
+
+# Local state
+*.ext4

@@ -1,0 +1,14 @@
+# Send only what the image builds need.
+*
+!paddock/
+!config/
+!docker/
+!pyproject.toml
+!README.md
+!LICENSE
+
+# Still never ship caches or secrets.
+**/__pycache__
+**/*.pyc
+**/*.egg-info/
+**/.env

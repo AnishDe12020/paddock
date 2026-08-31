@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paddock-mcp"
+version = "0.1.0"
+description = "Paddock: a fenced, resource-bounded MCP workspace sandbox"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = ["mcp==2.1.1"]
+keywords = ["chatgpt", "mcp", "sandbox", "secure-mcp-tunnel"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+]
+
+[project.urls]
+Homepage = "https://github.com/AnishDe12020/paddock"
+Issues = "https://github.com/AnishDe12020/paddock/issues"
+Source = "https://github.com/AnishDe12020/paddock"
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.8"]
+
+[project.scripts]
+paddock-server = "paddock.server:main"
+
+[tool.setuptools]
+packages = ["paddock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
