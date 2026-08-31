@@ -1,19 +1,19 @@
 # Paddock
 
-**Give ChatGPT room to run, not the whole farm.**
+**Give AI agents room to run, not the whole farm.**
 
-Paddock is a persistent Linux workbench that ChatGPT can use through the
-[OpenAI Secure MCP Tunnel][secure-tunnel]. It provides files, Bash, SSH/SFTP,
-and 100 GB of durable storage while keeping the MCP server private and fencing
-the workload away from the host, private networks, and unbounded resources.
+Paddock is a persistent Linux MCP workbench for ChatGPT, Claude, IDE agents,
+and other MCP clients. It provides files, Bash, SSH/SFTP, and 100 GB of durable
+storage while fencing the workload away from the host, private networks, and
+unbounded resources.
 
 ```text
-ChatGPT
+MCP client
    |
-   | OpenAI Secure MCP Tunnel (outbound HTTPS)
+   | SSH/stdio, OpenAI tunnel, Tailscale, or Cloudflare
    v
 +------------------------ Ubuntu host -------------------------+
-|  tunnel-client --> private MCP API --> /workspace (100 GB)   |
+|  optional ingress --> private MCP API --> /workspace (100 GB)|
 |                         |                                    |
 |  SSH :30222 ----------> | isolated containers, 4 CPU / 16 GB |
 |                         v                                    |
@@ -21,9 +21,10 @@ ChatGPT
 +--------------------------------------------------------------+
 ```
 
-There is no public MCP port. The tunnel client calls out to OpenAI, the MCP
-server listens only on an internal Docker bridge, and commands can reach the
-web only through a denylisted HTTP/HTTPS proxy.
+There is no published MCP port. The server listens only on an internal Docker
+bridge; ingress is either the existing key-only SSH path or an explicit,
+outbound connector profile. Commands can reach the web only through a filtered
+HTTP/HTTPS proxy.
 
 > [!WARNING]
 > Paddock grants an AI arbitrary Bash access inside its workspace. It can
@@ -57,7 +58,7 @@ Paddock currently targets one specific, inspectable deployment:
 - Three unused Docker subnets: `10.88.0.0/24`, `10.89.0.0/24`, and
   `10.90.0.0/24`
 - Enough disk for a sparse 100 GB workspace image as it fills
-- For ChatGPT: Secure MCP Tunnel access and ChatGPT developer-mode apps
+- At least one supported ingress path from [Ingress options](docs/ingress.md)
 
 Docker Desktop, rootless Docker, non-systemd hosts, and hosts where UID `11000`
 is already assigned are intentionally rejected rather than partially secured.
@@ -95,7 +96,40 @@ The SSH listener is `30222/tcp`. The installer adds a rate-limited UFW rule
 only when UFW is already active. With another host firewall, allow that port
 yourself, preferably from trusted source addresses only.
 
-### 2. Create the private tunnel
+### 2. Choose an ingress
+
+Paddock starts with no remote MCP connector enabled. Choose the narrowest path
+your client supports:
+
+| Ingress | Best for | Exposure and authority |
+| --- | --- | --- |
+| SSH/stdio | Claude Code/Desktop, Cursor, VS Code, local MCP clients | Reuses key-only SSH; no new listener |
+| OpenAI Secure Tunnel | ChatGPT | Outbound-only; authorized by OpenAI workspace permissions |
+| Tailscale Serve | Private devices and IDEs | Tailnet-only HTTPS; authorized by tailnet policy |
+| Cloudflare Tunnel | Clients that support Cloudflare Access | Public edge URL; Access policy is mandatory |
+| External HTTPS + OAuth | Hosted, standards-compliant MCP clients | Operator-supplied TLS and MCP OAuth 2.1 |
+
+See [Ingress options](docs/ingress.md) for compatibility and security details.
+
+#### SSH/stdio
+
+Every install can expose MCP over the existing SSH connection without another
+daemon or credential:
+
+```json
+{
+  "mcpServers": {
+    "paddock": {
+      "command": "ssh",
+      "args": ["-T", "-p", "30222", "ai@paddock.example.com", "paddock-mcp-stdio"]
+    }
+  }
+}
+```
+
+The SSH key grants both shell and MCP authority over the workspace.
+
+#### OpenAI Secure Tunnel
 
 Create a tunnel in [OpenAI Platform tunnel settings][tunnels]. Associate it
 with both the Platform organization and the ChatGPT workspace that should see
@@ -115,7 +149,7 @@ The key prompt is hidden. The script installs it as a root-only file, starts
 the pinned official `tunnel-client` image, and waits for an authenticated
 control-plane handshake.
 
-### 3. Add it to ChatGPT
+Add it to ChatGPT:
 
 Open [ChatGPT apps][chatgpt-apps], create a developer-mode app, and choose:
 
@@ -125,6 +159,33 @@ Open [ChatGPT apps][chatgpt-apps], create a developer-mode app, and choose:
 
 The runtime API key authenticates the tunnel daemon. Paddock deliberately does
 not implement user OAuth on the private MCP hop.
+
+#### Tailscale Serve
+
+After enabling HTTPS for your tailnet and creating an OAuth client authorized
+to create `tag:paddock` devices:
+
+```bash
+./scripts/activate-tailscale.sh paddock.your-tailnet.ts.net OAUTH_CLIENT_ID
+```
+
+Connect tailnet-capable clients to `https://paddock.your-tailnet.ts.net/mcp`.
+Restrict that node with Tailscale grants or ACLs; every identity permitted to
+reach it receives the full advertised MCP authority.
+
+#### Cloudflare Tunnel
+
+Create a remotely managed tunnel and public hostname with service
+`http://10.89.0.4:8000` and HTTP Host Header `10.89.0.4`. Protect it with a
+tested Cloudflare Access application before activating the connector:
+
+```bash
+./scripts/activate-cloudflare.sh --access-policy-ready
+```
+
+Cloudflare Tunnel alone is not authentication. Do not enable this profile for
+an unprotected hostname. It is most useful for MCP clients that can send Access
+service-token headers; it is not a substitute for standard MCP OAuth.
 
 Try:
 
@@ -138,8 +199,8 @@ read the file back, and then tell me exactly what you changed.
 Paddock relies on several independent boundaries rather than one magic
 "sandbox" switch:
 
-- **Private MCP transport:** only `tunnel-client` and the host can reach the
-  MCP bridge; there is no published container port or public reverse proxy.
+- **Explicit MCP transport:** there is no published container port. Each
+  optional connector receives only the network path required for its job.
 - **Unprivileged tools:** MCP file and command operations run as UID `11000`
   with every Linux capability dropped and `no-new-privileges` enabled.
 - **Read-only roots:** containers can write only to `/workspace` and bounded
@@ -155,7 +216,7 @@ Paddock relies on several independent boundaries rather than one magic
 - **Dedicated storage:** startup fails closed unless `/workspace` is the
   expected loop-backed ext4 filesystem.
 - **Key-only SSH:** password login, root login, forwarding, tunneling, agent
-  forwarding, and user startup hooks are disabled.
+  forwarding, and user startup hooks are disabled; stdio MCP reuses this path.
 
 See [Architecture](docs/architecture.md) for the packet paths and
 [Threat model](docs/threat-model.md) for what these controls do and do not

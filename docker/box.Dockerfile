@@ -30,11 +30,13 @@ RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/paddock
 COPY config/sshd_config /etc/ssh/sshd_config
 COPY docker/entrypoint.sh /usr/local/bin/paddock-entrypoint
 COPY docker/api-entrypoint.sh /usr/local/bin/paddock-api-entrypoint
+COPY docker/stdio-entrypoint.sh /usr/local/bin/paddock-mcp-stdio
 COPY docker/verify-workspace.sh /usr/local/bin/paddock-verify-workspace
 
 RUN chmod 0755 \
         /usr/local/bin/paddock-entrypoint \
         /usr/local/bin/paddock-api-entrypoint \
+        /usr/local/bin/paddock-mcp-stdio \
         /usr/local/bin/paddock-verify-workspace
 
 EXPOSE 22 8000

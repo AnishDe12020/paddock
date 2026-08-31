@@ -6,21 +6,14 @@ no single container needs every privilege.
 ## Components
 
 ```text
-                                        OpenAI control plane
-                                                ^
-                                                | HTTPS via Squid
-                                                |
-ChatGPT <--- OpenAI-hosted tunnel <--- tunnel-client (10.89.0.5)
-                                                |
-                                                | private HTTP :8000
-                                                v
-                                      MCP API (10.89.0.4)
-                                                |
-                                                v
-                                         /workspace
-                                                ^
-                                                |
-Operator :30222 -> systemd socket proxy -> sshd (10.88.0.2)
+ChatGPT <--- OpenAI-hosted tunnel <--- tunnel-client (.5) ---+
+Tailscale client <--- tailnet HTTPS <--- tailscale sidecar ---+--> MCP API (.4)
+Cloudflare client <--- Access + edge <--- cloudflared (.7) ---+       |
+                                                                    v
+                                                               /workspace
+                                                                    ^
+                                                                    |
+MCP/SSH client :30222 -> socket proxy -> sshd (10.88.0.2) -----------+
 
 MCP API / sshd ---> Squid (10.89.0.3 / 10.88.0.3)
                            |
@@ -34,6 +27,8 @@ MCP API / sshd ---> Squid (10.89.0.3 / 10.88.0.3)
 | `paddock-box` | Root starts sshd, which drops to UID 11000 for key-authenticated sessions |
 | `paddock-egress` | Squid policy enforcement; the only component with an internet bridge |
 | `paddock-openai-tunnel` | Official pinned client; polls OpenAI and forwards requests to the private MCP API |
+| `paddock-tailscale` | Optional pinned userspace node; serves private tailnet HTTPS from the API network namespace |
+| `paddock-cloudflared` | Optional pinned connector; forwards an Access-protected edge hostname to the API |
 | `paddock-firewall.service` | Host input/forward boundary loaded before Docker during boot |
 | `paddock-ssh.socket` | Public TCP listener proxied to the internal sshd address |
 | `paddock.slice` | Aggregate compute cgroup for the SSH and MCP workloads |
@@ -46,11 +41,12 @@ and systemd policies can be audited side by side.
 | Network | Bridge | Members |
 | --- | --- | --- |
 | `10.88.0.0/24` | `br-paddock-ssh` | sshd `.2`, Squid `.3` |
-| `10.89.0.0/24` | `br-paddock-api` | Squid `.3`, MCP `.4`, tunnel `.5` |
-| `10.90.0.0/24` | `br-paddock-net` | Squid `.3` only; public internet uplink |
+| `10.89.0.0/24` | `br-paddock-api` | Squid `.3`, MCP `.4`, OpenAI `.5`, optional Cloudflare `.7`; Tailscale shares `.4` |
+| `10.90.0.0/24` | `br-paddock-net` | Squid `.3`, optional Cloudflare `.4`; public internet uplink |
 
-The first two networks are Docker `internal` networks. The tunnel has no direct
-internet interface: its OpenAI control-plane requests explicitly use Squid.
+The first two networks are Docker `internal` networks. OpenAI and Tailscale
+control-plane requests use Squid. The Cloudflare profile needs TCP 7844 and is
+allowed to reach only Cloudflare's documented tunnel-edge IPv4 addresses.
 
 ## Request paths
 
@@ -83,6 +79,22 @@ internet interface: its OpenAI control-plane requests explicitly use Squid.
 4. Forwarding and tunnels are disabled. Web traffic follows the SSH-side Squid
    path.
 
+### SSH/stdio MCP session
+
+1. A local MCP client launches the configured `ssh` command.
+2. sshd authenticates the operator key and runs `paddock-mcp-stdio` as UID
+   11000.
+3. The wrapper verifies the workspace mount before starting stdio MCP.
+4. MCP messages and responses use the encrypted SSH stdin/stdout stream.
+
+### Optional connector
+
+OpenAI and Tailscale establish outbound control connections through Squid.
+Tailscale Serve terminates private tailnet HTTPS in the API network namespace.
+Cloudflare establishes outbound HTTP/2 directly to its tightly allowlisted edge
+and forwards requests from an externally configured Access-protected hostname.
+None of these profiles publishes a host or Docker port.
+
 ## Persistence and boot
 
 The installer creates a sparse ext4 image at
@@ -93,8 +105,8 @@ fails unless the mount is loop-backed ext4 with the expected capacity.
 The nftables service is ordered before Docker, so restart policies cannot bring
 the workloads up first during boot. The socket-proxy service cannot reach its
 container until Docker starts behind that boundary. Docker container roots are
-disposable; workspace data, SSH host keys, the operator public key, and tunnel
-credentials live outside them.
+disposable; workspace data, SSH host keys, the operator public key, connector
+credentials, and the allowed ingress hostnames live outside them.
 
 ## Why two compute containers?
 

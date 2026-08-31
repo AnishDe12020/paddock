@@ -4,14 +4,10 @@ table inet paddock {
         # Compute origins may only ever send replies to the host.
         iifname "br-paddock-ssh" ip saddr 10.88.0.2 ct state established,related accept
         iifname "br-paddock-api" ip saddr 10.89.0.4 ct state established,related accept
-        # The tunnel client and every egress proxy interface are denied host access.
-        iifname "br-paddock-api" ip saddr 10.89.0.5 drop
-        iifname "br-paddock-ssh" ip saddr 10.88.0.3 drop
-        iifname "br-paddock-api" ip saddr 10.89.0.3 drop
-        iifname "br-paddock-net" ip saddr 10.90.0.3 drop
-        # Fail closed for any other sandbox-originated traffic.
-        iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
-        iifname "br-paddock-api" ip saddr 10.89.0.4 drop
+        # Every other packet sourced by a Paddock bridge is denied host access.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.0/24 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.0/24 drop
+        iifname "br-paddock-net" ip saddr 10.90.0.0/24 drop
     }
 
     chain forward {
@@ -28,6 +24,8 @@ table inet paddock {
         # The tunnel may only reach the proxy and the API.
         iifname "br-paddock-api" ip saddr 10.89.0.5 ip daddr 10.89.0.3 tcp dport 3128 accept
         iifname "br-paddock-api" ip saddr 10.89.0.5 ip daddr 10.89.0.4 tcp dport 8000 accept
+        # Cloudflare may only reach the API from its sandbox-side interface.
+        iifname "br-paddock-api" ip saddr 10.89.0.7 ip daddr 10.89.0.4 tcp dport 8000 accept
         # The egress proxy may only reach the public internet: drop private,
         # link-local, loopback, and metadata-like destinations outright.
         iifname "br-paddock-net" ip saddr 10.90.0.3 ip daddr {
@@ -43,13 +41,33 @@ table inet paddock {
             224.0.0.0/4,
             240.0.0.0/4,
         } drop
-        # Compromised proxy processes cannot originate routed traffic through
-        # either sandbox-side interface.
-        iifname "br-paddock-ssh" ip saddr 10.88.0.3 drop
-        iifname "br-paddock-api" ip saddr 10.89.0.3 drop
-        # Fail closed for everything else from the compute origins.
-        iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
-        iifname "br-paddock-api" ip saddr 10.89.0.4 drop
-        iifname "br-paddock-api" ip saddr 10.89.0.5 drop
+        iifname "br-paddock-net" ip saddr 10.90.0.3 tcp dport { 80, 443 } accept
+        # cloudflared uses HTTP/2 only to Cloudflare's documented tunnel edge.
+        iifname "br-paddock-net" ip saddr 10.90.0.4 ip daddr {
+            198.41.192.7,
+            198.41.192.27,
+            198.41.192.37,
+            198.41.192.47,
+            198.41.192.57,
+            198.41.192.67,
+            198.41.192.77,
+            198.41.192.107,
+            198.41.192.167,
+            198.41.192.227,
+            198.41.200.13,
+            198.41.200.23,
+            198.41.200.33,
+            198.41.200.43,
+            198.41.200.53,
+            198.41.200.63,
+            198.41.200.73,
+            198.41.200.113,
+            198.41.200.193,
+            198.41.200.233,
+        } tcp dport 7844 accept
+        # Fail closed for everything else from every Paddock network.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.0/24 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.0/24 drop
+        iifname "br-paddock-net" ip saddr 10.90.0.0/24 drop
     }
 }

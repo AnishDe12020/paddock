@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["mcp==2.1.1"]
-keywords = ["chatgpt", "mcp", "sandbox", "secure-mcp-tunnel"]
+keywords = ["ai-agents", "chatgpt", "claude", "mcp", "sandbox"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Operating System :: POSIX :: Linux",
@@ -28,6 +28,7 @@ dev = ["pytest>=8", "ruff>=0.8"]
 
 [project.scripts]
 paddock-server = "paddock.server:main"
+paddock-server-stdio = "paddock.server:main_stdio"
 
 [tool.setuptools]
 packages = ["paddock"]

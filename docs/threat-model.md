@@ -28,10 +28,10 @@ send workspace data to public HTTP/HTTPS destinations.
 | --- | --- |
 | ChatGPT prompts and retrieved content | Untrusted input with full advertised MCP tool authority |
 | MCP and SSH processes as UID 11000 | One trust domain; both intentionally control the workspace |
-| OpenAI `tunnel-client` image | Trusted pinned transport component, isolated from direct internet and host state |
+| Optional OpenAI, Tailscale, and Cloudflare images | Trusted pinned transport components with profile-specific network paths |
 | Squid | Trusted egress policy component |
 | Docker, systemd, nftables, host kernel | Trusted computing base |
-| Operator SSH private key and OpenAI runtime key | Secrets that must remain outside the workspace and repository |
+| Operator SSH private key and connector credentials | Secrets that must remain outside the workspace and repository |
 
 ## Enforced invariants
 
@@ -79,6 +79,9 @@ still bounds this as a denial-of-service vector.
   and all IPv6 destinations.
 - The proxy's internet-side address is blocked from host input and private
   forwarding as a second boundary.
+- The optional Cloudflare connector is the only exception to proxy-only
+  internet egress: it may use TCP 7844 only to Cloudflare's documented tunnel
+  edge IPv4 addresses.
 - SSH forwarding, tunneling, and agent forwarding are disabled.
 
 This is destination filtering, not content filtering. Public websites can
@@ -89,21 +92,29 @@ receive workspace data and return malicious packages or instructions.
 - The operator SSH public key and host keys mount only into the SSH container.
 - The OpenAI runtime key mounts only into `tunnel-client` as a root-owned,
   read-only file.
+- Optional Tailscale and Cloudflare credentials mount only into their connector
+  containers as root-owned, read-only files.
 - The MCP process receives neither mount.
 - Child commands inherit no arbitrary server environment variables.
 
-### MCP has no public ingress
+### MCP ingress is explicit and closed by default
 
 - Compose publishes no MCP port.
 - The MCP bridge sits on an internal network and validates allowed Host values.
 - OpenAI transport is outbound-only through the official client and Squid.
-- The private MCP hop has no OAuth by design. The runtime key authenticates the
-  tunnel daemon; organization/workspace tunnel permissions authorize ChatGPT.
+- SSH/stdio reuses key-only SSH and opens no additional listener.
+- Tailscale Serve is tailnet-only; Tailscale grants or ACLs authorize clients.
+- Cloudflare creates a public edge route only when explicitly activated. A
+  restrictive Cloudflare Access policy is mandatory and remains the operator's
+  responsibility.
+- Private MCP hops have no OAuth by design. Each connector's external identity
+  policy is the authorization boundary.
 
 ## Out of scope and residual risk
 
 - Kernel, Docker, runc, systemd, nftables, or Squid vulnerabilities
 - Malicious or compromised pinned base images and packages
+- Misconfigured Tailscale grants, ACLs, Cloudflare DNS, or Access policies
 - Physical access or a hostile host administrator
 - Protecting data deliberately placed in `/workspace` from ChatGPT
 - Preventing destructive but authorized workspace operations

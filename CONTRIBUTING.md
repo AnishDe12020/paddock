@@ -14,7 +14,7 @@ ruff check .
 ruff format --check .
 pytest tests/unit
 shellcheck scripts/*.sh docker/*.sh
-docker compose config --quiet
+docker compose --profile openai-tunnel --profile tailscale --profile cloudflare config --quiet
 sudo nft --check --file deploy/systemd/paddock-firewall.nft
 docker build -f docker/box.Dockerfile -t paddock:local .
 docker build -f docker/proxy.Dockerfile -t paddock-proxy:local .

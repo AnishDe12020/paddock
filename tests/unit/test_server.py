@@ -297,7 +297,86 @@ def test_limit_env_defaults(tmp_path, monkeypatch):
         assert module.PROCESS_LIMIT == 1024
 
 
+def test_transport_allowed_hosts_loads_operator_hosts(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    allowed_hosts = tmp_path / "allowed-hosts"
+    allowed_hosts.write_text("# ingress names\npaddock.example.ts.net\nMCP.EXAMPLE.COM\n")
+    with server_with_env(
+        monkeypatch,
+        PADDOCK_WORKSPACE=str(workspace),
+        PADDOCK_ALLOWED_HOSTS_FILE=str(allowed_hosts),
+    ) as module:
+        hosts = module.transport_allowed_hosts()
+        assert "10.89.0.4:*" in hosts
+        assert "paddock.example.ts.net" in hosts
+        assert "paddock.example.ts.net:*" in hosts
+        assert "mcp.example.com" in hosts
+
+
+def test_transport_allowed_hosts_rejects_urls(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    allowed_hosts = tmp_path / "allowed-hosts"
+    allowed_hosts.write_text("https://mcp.example.com\n")
+    with (
+        server_with_env(
+            monkeypatch,
+            PADDOCK_WORKSPACE=str(workspace),
+            PADDOCK_ALLOWED_HOSTS_FILE=str(allowed_hosts),
+        ) as module,
+        pytest.raises(SystemExit, match="invalid host"),
+    ):
+        module.transport_allowed_hosts()
+
+
+def test_transport_allowed_hosts_rejects_malformed_names(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    allowed_hosts = tmp_path / "allowed-hosts"
+    allowed_hosts.write_text("bad..example.com\n")
+    with (
+        server_with_env(
+            monkeypatch,
+            PADDOCK_WORKSPACE=str(workspace),
+            PADDOCK_ALLOWED_HOSTS_FILE=str(allowed_hosts),
+        ) as module,
+        pytest.raises(SystemExit, match="invalid host"),
+    ):
+        module.transport_allowed_hosts()
+
+
+def test_transport_allowed_hosts_rejects_directory(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    allowed_hosts = tmp_path / "allowed-hosts"
+    allowed_hosts.mkdir()
+    with (
+        server_with_env(
+            monkeypatch,
+            PADDOCK_WORKSPACE=str(workspace),
+            PADDOCK_ALLOWED_HOSTS_FILE=str(allowed_hosts),
+        ) as module,
+        pytest.raises(SystemExit, match="not a file"),
+    ):
+        module.transport_allowed_hosts()
+
+
 def test_main_refuses_root(server, monkeypatch):
     monkeypatch.setattr(server.os, "geteuid", lambda: 0)
     with pytest.raises(SystemExit, match="must not run as root"):
         server.main()
+
+
+def test_stdio_main_refuses_root(server, monkeypatch):
+    monkeypatch.setattr(server.os, "geteuid", lambda: 0)
+    with pytest.raises(SystemExit, match="must not run as root"):
+        server.main_stdio()
+
+
+def test_stdio_main_selects_stdio_transport(server, monkeypatch):
+    calls = []
+    monkeypatch.setattr(server.os, "geteuid", lambda: 11000)
+    monkeypatch.setattr(server.mcp, "run", lambda **kwargs: calls.append(kwargs))
+    server.main_stdio()
+    assert calls == [{"transport": "stdio"}]

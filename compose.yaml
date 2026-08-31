@@ -94,6 +94,7 @@ services:
         ipv4_address: 10.89.0.4
     volumes:
       - /srv/paddock-workspace:/workspace
+      - /var/lib/paddock/allowed-hosts:/etc/paddock/allowed-hosts:ro
     read_only: true
     tmpfs:
       - /run:rw,noexec,nosuid,nodev,size=16m
@@ -197,6 +198,106 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  tailscale:
+    profiles: ["tailscale"]
+    image: tailscale/tailscale:v1.102.3@sha256:8c42c4574ab066384fcb72f69e086a2ff1dd3652eb6f56856cee34bcf0d2f680
+    container_name: paddock-tailscale
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    network_mode: service:api
+    environment:
+      HTTP_PROXY: http://10.89.0.3:3128
+      HTTPS_PROXY: http://10.89.0.3:3128
+      NO_PROXY: localhost,127.0.0.1,10.89.0.4
+      TS_AUTH_ONCE: "true"
+      TS_CLIENT_ID: file:/run/secrets/tailscale-client-id
+      TS_CLIENT_SECRET: file:/run/secrets/tailscale-client-secret
+      TS_EXTRA_ARGS: --advertise-tags=tag:paddock
+      TS_HOSTNAME: paddock
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+    volumes:
+      - /var/lib/paddock/tailscale/client-id:/run/secrets/tailscale-client-id:ro
+      - /var/lib/paddock/tailscale/client-secret:/run/secrets/tailscale-client-secret:ro
+      - /var/lib/paddock/tailscale/state:/var/lib/tailscale
+      - ./config/tailscale:/config:ro
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=32m
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "tailscale", "status", "--json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  cloudflared:
+    profiles: ["cloudflare"]
+    image: cloudflare/cloudflared:2026.8.3@sha256:51c9cefcb4569df44e1ad403ab1d3d8065aa8e84339bcfc6aee75502e1140339
+    container_name: paddock-cloudflared
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    user: "0:0"
+    command:
+      - tunnel
+      - --protocol
+      - http2
+      - --edge-ip-version
+      - "4"
+      - --metrics
+      - 127.0.0.1:2000
+      - run
+      - --token-file
+      - /run/secrets/cloudflare-tunnel-token
+    networks:
+      api_sandbox:
+        ipv4_address: 10.89.0.7
+      internet:
+        ipv4_address: 10.90.0.4
+    volumes:
+      - /var/lib/paddock/cloudflare/tunnel-token:/run/secrets/cloudflare-tunnel-token:ro
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     logging:
       driver: json-file
       options:

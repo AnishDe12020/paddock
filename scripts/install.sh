@@ -169,6 +169,9 @@ sudo chmod 0700 "$WORKSPACE_MOUNT"
 
 # Host keys for sshd and the root-only authorized_keys file.
 sudo install -d -m 0700 "$STATE_DIR/ssh"
+if ! sudo test -f "$STATE_DIR/allowed-hosts"; then
+    sudo install -o root -g root -m 0644 /dev/null "$STATE_DIR/allowed-hosts"
+fi
 if ! sudo test -f "$STATE_DIR/ssh/ssh_host_ed25519_key"; then
     sudo ssh-keygen -q -t ed25519 -N '' -f "$STATE_DIR/ssh/ssh_host_ed25519_key"
 fi
@@ -199,14 +202,21 @@ sudo systemctl enable paddock.slice
 sudo systemctl enable paddock-firewall.service
 sudo systemctl restart paddock-firewall.service
 
-# Stack. Reuse the tunnel profile when it was configured previously.
+# Stack. Reuse optional ingress profiles when they were configured previously.
 COMPOSE=(sudo docker compose -f "$PROJECT_DIR/compose.yaml")
+PROFILES=()
 if sudo test -f "$STATE_DIR/openai-tunnel/config.yaml" \
     && sudo test -f "$STATE_DIR/openai-tunnel/api-key"; then
-    "${COMPOSE[@]}" --profile openai-tunnel up -d
-else
-    "${COMPOSE[@]}" up -d
+    PROFILES+=(--profile openai-tunnel)
 fi
+if sudo test -f "$STATE_DIR/tailscale/client-id" \
+    && sudo test -f "$STATE_DIR/tailscale/client-secret"; then
+    PROFILES+=(--profile tailscale)
+fi
+if sudo test -f "$STATE_DIR/cloudflare/tunnel-token"; then
+    PROFILES+=(--profile cloudflare)
+fi
+"${COMPOSE[@]}" "${PROFILES[@]}" up -d
 
 sudo systemctl enable paddock-ssh.socket
 sudo systemctl restart paddock-ssh.socket
@@ -223,4 +233,4 @@ printf '\nPaddock deployed.\n'
 printf 'SSH:       ssh -p %s ai@%s\n' "$SSH_PORT" "$SSH_HOST"
 printf 'Workspace: %s (100G ext4 loop, mode 0700, uid 11000)\n' "$WORKSPACE_MOUNT"
 printf 'State:     %s\n' "$STATE_DIR"
-printf 'MCP:       internal only (paddock-api on the sandbox network, port 8000)\n'
+printf 'MCP:       private by default; see docs/ingress.md for optional transports\n'

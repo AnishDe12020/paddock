@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import os
+import re
 import secrets
 import selectors
 import shutil
@@ -48,6 +49,19 @@ COMMAND_ENV = {
     }
 }
 COMMAND_ENV["HOME"] = str(ROOT)
+DEFAULT_ALLOWED_HOSTS = [
+    "10.89.0.4",
+    "10.89.0.4:*",
+    "api",
+    "api:*",
+    "localhost",
+    "localhost:*",
+    "127.0.0.1",
+    "127.0.0.1:*",
+]
+ALLOWED_HOSTS_FILE = Path(
+    os.environ.get("PADDOCK_ALLOWED_HOSTS_FILE", "/etc/paddock/allowed-hosts")
+)
 
 
 def workspace_path(raw_path: str, *, follow_final: bool = True) -> Path:
@@ -74,6 +88,26 @@ def workspace_entries(target: Path, recursive: bool) -> Iterator[Path]:
                 yield item
                 if recursive and entry.is_dir(follow_symlinks=False):
                     pending.append(item)
+
+
+def transport_allowed_hosts() -> list[str]:
+    hosts = list(DEFAULT_ALLOWED_HOSTS)
+    if not ALLOWED_HOSTS_FILE.exists():
+        return hosts
+    if not ALLOWED_HOSTS_FILE.is_file():
+        raise SystemExit(f"allowed-hosts path is not a file: {ALLOWED_HOSTS_FILE}")
+    for raw_line in ALLOWED_HOSTS_FILE.read_text().splitlines():
+        host = raw_line.strip().lower()
+        if not host or host.startswith("#"):
+            continue
+        labels = host.split(".")
+        if len(host) > 253 or any(
+            len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+            for label in labels
+        ):
+            raise SystemExit(f"invalid host in {ALLOWED_HOSTS_FILE}: {raw_line!r}")
+        hosts.extend((host, f"{host}:*"))
+    return list(dict.fromkeys(hosts))
 
 
 def execute(command: str, timeout: int, output_limit: int) -> dict[str, object]:
@@ -334,21 +368,9 @@ async def health(request: Request) -> Response:
 
 
 def main() -> None:
-    if os.geteuid() == 0:
-        raise SystemExit(
-            "paddock-server must not run as root; run it as the unprivileged workspace uid"
-        )
+    refuse_root()
     security = TransportSecuritySettings(
-        allowed_hosts=[
-            "10.89.0.4",
-            "10.89.0.4:*",
-            "api",
-            "api:*",
-            "localhost",
-            "localhost:*",
-            "127.0.0.1",
-            "127.0.0.1:*",
-        ],
+        allowed_hosts=transport_allowed_hosts(),
         allowed_origins=[],
     )
     mcp.run(
@@ -359,6 +381,18 @@ def main() -> None:
         json_response=True,
         transport_security=security,
     )
+
+
+def refuse_root() -> None:
+    if os.geteuid() == 0:
+        raise SystemExit(
+            "paddock-server must not run as root; run it as the unprivileged workspace uid"
+        )
+
+
+def main_stdio() -> None:
+    refuse_root()
+    mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
