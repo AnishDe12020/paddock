@@ -1,0 +1,229 @@
+name: paddock
+
+services:
+  box:
+    image: paddock:local
+    build:
+      context: .
+      dockerfile: docker/box.Dockerfile
+    container_name: paddock-box
+    restart: unless-stopped
+    depends_on:
+      egress:
+        condition: service_healthy
+    cgroup_parent: paddock.slice
+    environment:
+      HTTP_PROXY: http://egress:3128
+      HTTPS_PROXY: http://egress:3128
+      ALL_PROXY: http://egress:3128
+      http_proxy: http://egress:3128
+      https_proxy: http://egress:3128
+      all_proxy: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+    dns_search:
+      - "."
+    networks:
+      ssh_sandbox:
+        ipv4_address: 10.88.0.2
+    volumes:
+      - /srv/paddock-workspace:/workspace
+      - /var/lib/paddock/ssh:/etc/ssh/host_keys:ro
+      - /var/lib/paddock/authorized_keys:/etc/ssh/authorized_keys:ro
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=32m
+      - /tmp:rw,nosuid,nodev,size=4g
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+      - SYS_CHROOT
+    security_opt:
+      - no-new-privileges:true
+    cpus: 4.0
+    mem_limit: 16g
+    memswap_limit: 16g
+    pids_limit: 1024
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/22"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  api:
+    image: paddock:local
+    build:
+      context: .
+      dockerfile: docker/box.Dockerfile
+    container_name: paddock-api
+    restart: unless-stopped
+    depends_on:
+      egress:
+        condition: service_healthy
+    cgroup_parent: paddock.slice
+    user: "11000:11000"
+    entrypoint: ["/usr/local/bin/paddock-api-entrypoint"]
+    environment:
+      HTTP_PROXY: http://egress:3128
+      HTTPS_PROXY: http://egress:3128
+      ALL_PROXY: http://egress:3128
+      http_proxy: http://egress:3128
+      https_proxy: http://egress:3128
+      all_proxy: http://egress:3128
+      NO_PROXY: localhost,127.0.0.1
+      no_proxy: localhost,127.0.0.1
+    dns_search:
+      - "."
+    networks:
+      api_sandbox:
+        ipv4_address: 10.89.0.4
+    volumes:
+      - /srv/paddock-workspace:/workspace
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=16m
+      - /tmp:rw,noexec,nosuid,nodev,size=4g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 4.0
+    mem_limit: 16g
+    memswap_limit: 16g
+    pids_limit: 1024
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  egress:
+    image: paddock-proxy:local
+    build:
+      context: .
+      dockerfile: docker/proxy.Dockerfile
+    container_name: paddock-egress
+    restart: unless-stopped
+    dns_search:
+      - "."
+    networks:
+      ssh_sandbox:
+        ipv4_address: 10.88.0.3
+      api_sandbox:
+        ipv4_address: 10.89.0.3
+      internet:
+        ipv4_address: 10.90.0.3
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=16m,mode=1777
+      - /tmp:rw,nosuid,nodev,size=32m,mode=1777
+      - /var/log/squid:rw,noexec,nosuid,nodev,size=32m,mode=1777
+      - /var/spool/squid:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "squid", "-k", "check", "-f", "/etc/squid/squid.conf"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  openai_tunnel:
+    profiles: ["openai-tunnel"]
+    image: ghcr.io/openai/tunnel-client@sha256:4c6b1441a6ca2506ce04231c1022e6ada32ec488f41d300a4f29f7675cfb4337
+    container_name: paddock-openai-tunnel
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    command: ["--config", "/etc/tunnel-client/config.yaml"]
+    networks:
+      api_sandbox:
+        ipv4_address: 10.89.0.5
+    volumes:
+      - /var/lib/paddock/openai-tunnel/config.yaml:/etc/tunnel-client/config.yaml:ro
+      - /var/lib/paddock/openai-tunnel/api-key:/run/secrets/control-plane-api-key:ro
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=32m
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    cpus: 0.5
+    mem_limit: 256m
+    memswap_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:8080/readyz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  ssh_sandbox:
+    name: paddock-ssh-sandbox
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-paddock-ssh
+    ipam:
+      config:
+        - subnet: 10.88.0.0/24
+  api_sandbox:
+    name: paddock-api-sandbox
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-paddock-api
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
+  internet:
+    name: paddock-internet
+    driver_opts:
+      com.docker.network.bridge.name: br-paddock-net
+    ipam:
+      config:
+        - subnet: 10.90.0.0/24

@@ -1,0 +1,47 @@
+table inet paddock {
+    chain input {
+        type filter hook input priority -10; policy accept;
+        # Compute origins may only ever send replies to the host.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.2 ct state established,related accept
+        iifname "br-paddock-api" ip saddr 10.89.0.4 ct state established,related accept
+        # The tunnel client and the egress proxy never talk to the host.
+        iifname "br-paddock-api" ip saddr 10.89.0.5 drop
+        iifname "br-paddock-net" ip saddr 10.90.0.3 drop
+        # Fail closed for any other sandbox-originated traffic.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.4 drop
+    }
+
+    chain forward {
+        type filter hook forward priority -10; policy accept;
+        # Replies to compute origins.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.2 ct state established,related accept
+        iifname "br-paddock-api" ip saddr 10.89.0.4 ct state established,related accept
+        iifname "br-paddock-api" ip saddr 10.89.0.5 ct state established,related accept
+        # Each compute origin may only reach its proxy address and port.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.2 ip daddr 10.88.0.3 tcp dport 3128 accept
+        iifname "br-paddock-api" ip saddr 10.89.0.4 ip daddr 10.89.0.3 tcp dport 3128 accept
+        # The tunnel may only reach the proxy and the API.
+        iifname "br-paddock-api" ip saddr 10.89.0.5 ip daddr 10.89.0.3 tcp dport 3128 accept
+        iifname "br-paddock-api" ip saddr 10.89.0.5 ip daddr 10.89.0.4 tcp dport 8000 accept
+        # The egress proxy may only reach the public internet: drop private,
+        # link-local, loopback, and metadata-like destinations outright.
+        iifname "br-paddock-net" ip saddr 10.90.0.3 ip daddr {
+            0.0.0.0/8,
+            10.0.0.0/8,
+            100.64.0.0/10,
+            127.0.0.0/8,
+            169.254.0.0/16,
+            172.16.0.0/12,
+            192.168.0.0/16,
+            192.0.0.0/24,
+            198.18.0.0/15,
+            224.0.0.0/4,
+            240.0.0.0/4,
+        } drop
+        # Fail closed for everything else from the compute origins.
+        iifname "br-paddock-ssh" ip saddr 10.88.0.2 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.4 drop
+        iifname "br-paddock-api" ip saddr 10.89.0.5 drop
+    }
+}

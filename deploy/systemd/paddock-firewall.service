@@ -1,0 +1,16 @@
+[Unit]
+Description=Fail-closed host and forwarding boundary for Paddock containers
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target docker.service paddock-ssh.socket shutdown.target
+Wants=network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStartPre=-/usr/sbin/nft delete table inet paddock
+ExecStart=/usr/sbin/nft -f /etc/paddock-firewall.nft
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

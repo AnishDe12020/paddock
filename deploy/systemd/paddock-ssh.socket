@@ -1,0 +1,10 @@
+[Unit]
+Description=Public socket for the isolated Paddock SSH service
+
+[Socket]
+ListenStream=0.0.0.0:30222
+Accept=no
+NoDelay=true
+
+[Install]
+WantedBy=sockets.target

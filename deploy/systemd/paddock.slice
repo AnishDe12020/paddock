@@ -1,0 +1,8 @@
+[Unit]
+Description=Aggregate resource boundary for untrusted Paddock compute
+
+[Slice]
+CPUQuota=400%
+MemoryMax=16G
+MemorySwapMax=0
+TasksMax=1024

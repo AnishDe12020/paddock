@@ -1,0 +1,20 @@
+config_version: 1
+control_plane:
+  tunnel_id: tunnel_REPLACE_WITH_32_LOWERCASE_HEX
+  api_key: file:/run/secrets/control-plane-api-key
+  http_proxy: http://10.89.0.3:3128
+  max_inflight_requests: 8
+  poll_timeout: 30000ms
+health:
+  listen_addr: 127.0.0.1:8080
+admin_ui:
+  open_browser: false
+mcp:
+  server_urls:
+    - channel: main
+      url: http://10.89.0.4:8000/mcp
+  startup_wait_timeout: 60s
+  max_concurrent_requests: 4
+log:
+  level: info
+  format: json
