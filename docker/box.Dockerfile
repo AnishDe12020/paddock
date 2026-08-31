@@ -23,7 +23,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /run/sshd /workspace
 
 COPY pyproject.toml /opt/paddock/
-COPY LICENSE /opt/paddock/
+COPY README.md LICENSE /opt/paddock/
 COPY paddock/ /opt/paddock/paddock/
 RUN python3 -m pip install --break-system-packages --no-cache-dir /opt/paddock
 

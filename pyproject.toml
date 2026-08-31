@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "paddock-mcp"
 version = "0.1.0"
 description = "Paddock: a fenced, resource-bounded MCP workspace sandbox"
+readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
 dependencies = ["mcp==2.1.1"]
