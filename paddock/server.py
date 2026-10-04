@@ -141,7 +141,9 @@ def execute(command: str, timeout: int, output_limit: int) -> dict[str, object]:
             deadline = time.monotonic() + timeout
             timed_out = False
             drain_deadline = None
-            while selector.get_map():
+            # EOF on both pipes does not mean the command has exited. Keep
+            # enforcing the deadline even when it redirects or closes output.
+            while selector.get_map() or process.poll() is None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0 and not timed_out:
                     timed_out = True
@@ -159,7 +161,9 @@ def execute(command: str, timeout: int, output_limit: int) -> dict[str, object]:
                         selector.unregister(key.fileobj)
                         key.fileobj.close()
                     break
-                events = selector.select(0.1 if timed_out else max(0, remaining))
+                events = selector.select(
+                    0.1 if timed_out or not selector.get_map() else max(0, remaining)
+                )
                 for key, _ in events:
                     chunk = os.read(key.fileobj.fileno(), 65536)
                     if not chunk:
