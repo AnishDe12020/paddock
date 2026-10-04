@@ -37,9 +37,6 @@ jobs:
       - name: Unit tests
         run: pytest tests/unit
 
-      - name: Integration tests (auto-skip without a deployed Paddock)
-        run: pytest tests/integration
-
       - name: Validate compose file
         run: docker compose --profile openai-tunnel --profile tailscale --profile cloudflare config --quiet
 
@@ -51,6 +48,9 @@ jobs:
 
       - name: Build box image
         run: docker build -f docker/box.Dockerfile -t paddock:local .
+
+      - name: Isolated MCP protocol smoke test
+        run: bash scripts/verify-container.sh paddock:local
 
       - name: Build proxy image
         run: docker build -f docker/proxy.Dockerfile -t paddock-proxy:local .

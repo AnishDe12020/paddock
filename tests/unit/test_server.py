@@ -218,6 +218,16 @@ def test_command_timeout_kills_process_group(server):
 
 
 @requires_prlimit
+def test_command_timeout_after_output_streams_close(server):
+    started = time.monotonic()
+    result = server.execute("exec 1>&- 2>&-; sleep 4", 1, 4096)
+    elapsed = time.monotonic() - started
+    assert result["timed_out"] is True
+    assert result["exit_code"] == -9
+    assert elapsed < 3
+
+
+@requires_prlimit
 def test_timeout_returns_when_detached_child_holds_pipes(server):
     started = time.monotonic()
     result = server.execute(
