@@ -23,12 +23,13 @@ docker build -f docker/proxy.Dockerfile -t paddock-proxy:local .
 Run `bash scripts/verify-container.sh paddock:local` after building the box image
 for a real MCP HTTP smoke test in a disposable, offline container. It requires
 Linux Docker with cgroup v2. The script removes its own container and test image.
+It uses a small tmpfs workspace; installer, persistent storage, systemd, and
+network policy changes need separate testing on a disposable Ubuntu 24.04 VM.
 
 For a deployed Paddock, positively identify the deployment first, then run
 `MCP_URL=http://10.89.0.4:8000/mcp pytest tests/integration`. The suite creates and
 removes a unique temporary workspace directory. No endpoint is selected by
-default; an explicitly selected endpoint that is unreachable fails. See the
-[release checklist](docs/release-checklist.md) for the remaining deployment gates.
+default; an explicitly selected endpoint that is unreachable fails.
 
 ## Change discipline
 
