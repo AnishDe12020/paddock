@@ -9,7 +9,7 @@ description = "Paddock: a fenced, resource-bounded MCP workspace sandbox"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = ["mcp==2.1.1"]
+dependencies = ["mcp==2.2.0"]
 keywords = ["ai-agents", "chatgpt", "claude", "mcp", "sandbox"]
 classifiers = [
     "Development Status :: 3 - Alpha",
